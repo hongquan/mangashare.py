@@ -1,0 +1,119 @@
+#!/usr/bin/env python
+
+import argparse
+import urllib.request
+import re
+import os
+import sys
+import difflib
+import signal
+
+VERSION = '0.1-0'
+BASE_URL = 'http://read.mangashare.com/'
+DIR_REGEX = r'datarow-1">([\w_./!$\- ]+).+?datarow-0"><a href="(/[\w_\-]+)'
+CHAPTERS_REGEX = r'row-1">([\w!.$-_ ]+)</td.+?row-0"><a href="([\w.\-_:/]+)"'
+PAGE_URL_REGEX = r'name="pagejump".+?location=\\\'/(.+?)\\\';'
+PAGES_NUMBERS_REGEX = r'value="(\d+)">Page'
+IMAGE_REGEX = r'id="page">.+?<img src="(.+?)"'
+
+def initialize_argparse():
+    parser = argparse.ArgumentParser(description = "A downloader for mangashare.com", prog = "mangashare")
+    parser.add_argument('--version', action='version', version='%(prog)s ' + VERSION)
+    parser.add_argument('-f', dest='folder', metavar='Folder', type=str, default='', help='the folder to download to')
+    # parser.add_argument('-c', type=int, default=0, metavar='Chapter', help='start downloading at chapter X')
+    parser.add_argument('manga', type=str, metavar='Manga', help='name of the manga')
+    return parser.parse_args()
+
+def check_args(args):
+    path = os.path.normpath(os.path.join(os.getcwd(), args.folder))
+    if not os.path.exists(path):
+        print("Error: path '%s' does not exist" % path)
+        return False
+    args.folder = path
+    return True
+
+def get_index():
+    f = str(urllib.request.urlopen(BASE_URL + 'dir').read())
+    mangas = re.findall(DIR_REGEX, f)
+    return mangas
+
+def find_manga(name):
+    mangas = get_index()
+    finds = []
+    for e in mangas:
+        s = difflib.SequenceMatcher(None, name, e[0])
+        ratio = s.quick_ratio()
+        if ratio >= 0.75:
+            finds.append((ratio, e))
+    finds.sort(key=lambda manga: manga[0], reverse=True)
+    return finds
+
+def prompt_manga(choices, search_term):
+    if len(choices) < 1:
+        print("Could not find any mangas matching your search term '%s'" % search_term)
+        return
+    print("Found the following mangas:")
+    for i,e in enumerate(choices):
+        print("\t%d. %s" % (i+1, e[1][0]))
+    print("Please select a manga by typing it's number")
+    input_string = input("> ")
+    index = 0
+    try:
+        index = int(input_string)
+    except ValueError:
+        print("Error: Input should be a number")
+        return
+    if index > len(choices) or index < 1:
+        print("Error: Invalid input")
+        return
+    return choices[index-1][1]
+
+def get_chapter_list(manga):
+    f = str(urllib.request.urlopen(BASE_URL + manga[1]).read())
+    chapters = re.findall(CHAPTERS_REGEX, f)
+    chapters.reverse()
+    return [(x[0].strip(), x[1]) for x in chapters] # remove trailing whitespaces
+
+def get_page_list(chapter_url):
+    f = str(urllib.request.urlopen(chapter_url).read())
+    page_url = re.findall(PAGE_URL_REGEX, f)[0]
+    page_numbers = re.findall(PAGES_NUMBERS_REGEX, f)
+    page_numbers
+    pages = [chapter_url]
+    for e in page_numbers:
+        pages.append(BASE_URL + page_url.replace("\\'+this.value+\\'", e))
+    return pages
+
+def print_progress(chapter, chapter_count, page, page_count):
+    sys.stdout.write("Downloading: Chapter [%d/%d] Page[%d/%d]\r" % (chapter, chapter_count, page, page_count))
+
+def download_page(name, page_url, chapter, page, folder):
+    f = str(urllib.request.urlopen(page_url).read())
+    image_url = re.findall(IMAGE_REGEX, f)[0]
+    if not os.path.exists(folder):
+        try:
+            os.makedirs(folder)
+        except os.error:
+            print("Error: could not create the directory '%s'" % folder)
+    urllib.request.urlretrieve(image_url, os.path.join(folder, "%s-Chapter%d-Page%d" % (name, chapter, page)))
+
+def download_manga(manga, folder):
+    chapters = get_chapter_list(manga)
+    download_folder = os.path.join(folder, manga[0])
+    for i,chapter in enumerate(chapters):
+        pages = get_page_list(chapter[1])
+        for j,page in enumerate(pages):
+            download_page(manga[0], page, i+1, j+1, download_folder)
+            print_progress(i+1, len(chapters), j+1, len(pages))
+
+def main():
+    args = initialize_argparse()
+    if check_args(args) == False:
+        sys.exit(0)
+    search_results = find_manga(args.manga)
+    selected_manga = prompt_manga(search_results, args.manga)
+    if selected_manga is None:
+        sys.exit(0)
+    download_manga(selected_manga, args.folder)
+
+main()

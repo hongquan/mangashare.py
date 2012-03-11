@@ -6,9 +6,8 @@ import re
 import os
 import sys
 import difflib
-import signal
 
-VERSION = '0.1'
+VERSION = '0.1.1'
 BASE_URL = 'http://read.mangashare.com/'
 DIR_REGEX = r'datarow-1">([\w_./!$\- ]+).+?datarow-0"><a href="(/[\w_\-]+)'
 CHAPTERS_REGEX = r'row-1">([\w!.$-_ ]+)</td.+?row-0"><a href="([\w.\-_:/]+)"'
